@@ -17,43 +17,7 @@ static const uint8_t BDH450_REGISTER_TANK_FULL = 0b00000001;
 static const uint8_t BDH450_REGISTER_UPDATE_DISPLAY = 0xC0;
 
 
-void BDH450Sensor::setup() {
-  ESP_LOGD(TAG, "Setting up BDH-450...");
 
-  this->clk_pin_->setup();  // INPUT
-  this->dio_pin_->setup();  // INPUT
-  this->stb_pin_->setup();  // INPUT
-
-  this->clk_pin_->pin_mode(gpio::FLAG_INPUT);
-  this->dio_pin_->pin_mode(gpio::FLAG_INPUT);
-  this->stb_pin_->pin_mode(gpio::FLAG_INPUT);
-
-  this->pin_clock_ = this->clk_pin_->to_isr();
-  this->pin_strobe_ = this->stb_pin_->to_isr();
-
-  this->messenger_.listen(this->clk_pin_, this->stb_pin_, true);
-
-  
-  messenger_.dio_pin = this-> dio_pin_; 
-  messenger_.stb_pin = this-> stb_pin_;
-}
-
-void BDH450Sensor::dump_config() {
-  ESP_LOGCONFIG(TAG, "BDH-450:");
-  LOG_PIN("  CLK   Pin: ", this->clk_pin_);
-  LOG_PIN("  DIO   Pin: ", this->dio_pin_);
-  LOG_PIN("  STB   Pin: ", this->stb_pin_);
-
-  LOG_UPDATE_INTERVAL(this);
-}
-
-void BDH450Sensor::update() {
-  this->messenger_.listen(clk_pin_, stb_pin_, true);
-  this->process_byte_();
-}
-
-bool BDH450Sensor::is_on() { return power_on_; }
-bool BDH450Sensor::is_off() { return !power_on_; }
 
 void BDH450Messenger::reset()
 {
@@ -61,23 +25,27 @@ void BDH450Messenger::reset()
   bits_read_ = 0;
   ary_idx = 0;
 }
-void IRAM_ATTR BDH450Messenger::strobe_active_(BDH450Messenger *msg) {
-  if (!msg->stb_pin->digital_read())
+
+void IRAM_ATTR BDH450Messenger::strobe_active(BDH450Messenger *msg) {
+
+  msg->is_strobe_active_ = !msg->is_strobe_active_; //try something different? on change we just swap state i guess? this could be problematic
+  /*
+  if (!msg->stb_pin.digital_read())
   {
     msg->is_strobe_active_ = true;
   } else {
     msg->is_strobe_active_ = false;
   }
+  */
 }
 
-
-void IRAM_ATTR BDH450Messenger::clock_read_(BDH450Messenger *msg) {
+void IRAM_ATTR BDH450Messenger::clock_read(BDH450Messenger *msg) {
   if (!msg->is_strobe_active_)
     return;
 
   msg->bits_read_++;
   msg->workingy_byte >>= 1;
-  if (msg->dio_pin->digital_read())
+  if (msg->dio_pin.digital_read())
     msg->workingy_byte |= 0x80;
   
   if (msg->bits_read_ % 8 == 0)
@@ -88,13 +56,17 @@ void IRAM_ATTR BDH450Messenger::clock_read_(BDH450Messenger *msg) {
   }
 }
 
-void BDH450Messenger::listen(InternalGPIOPin *clk_pin, InternalGPIOPin *stb_pin, bool enable_listen) {
+void BDH450Messenger::listen(InternalGPIOPin *clk_pin, InternalGPIOPin *stb_pin, InternalGPIOPin *dio_pin, bool enable_listen) {
+  
+  this->stb_pin = stb_pin->to_isr();
+  this->dio_pin = dio_pin->to_isr();
+  this->clk_pin = clk_pin->to_isr();
   if (enable_listen && !already_listening_)
   {
     reset();
 
-    clk_pin->attach_interrupt(BDH450Messenger::strobe_active_, this, gpio::INTERRUPT_ANY_EDGE);
-    stb_pin->attach_interrupt(BDH450Messenger::clock_read_, this, gpio::INTERRUPT_RISING_EDGE);
+    stb_pin->attach_interrupt(BDH450Messenger::strobe_active, this, gpio::INTERRUPT_ANY_EDGE);
+    clk_pin->attach_interrupt(BDH450Messenger::clock_read, this, gpio::INTERRUPT_RISING_EDGE);
     
     
     already_listening_ = true;
@@ -105,6 +77,42 @@ void BDH450Messenger::listen(InternalGPIOPin *clk_pin, InternalGPIOPin *stb_pin,
     already_listening_ = false;
   }
 }
+
+
+
+
+
+
+
+void BDH450Sensor::setup() {
+  ESP_LOGD(TAG, "Setting up BDH-450...");
+
+  this->clk_pin_->setup();  // INPUT
+  this->dio_pin_->setup();  // INPUT
+  this->stb_pin_->setup();  // INPUT
+
+  this->clk_pin_->pin_mode(gpio::FLAG_INPUT);
+  this->dio_pin_->pin_mode(gpio::FLAG_INPUT);
+  this->stb_pin_->pin_mode(gpio::FLAG_INPUT);
+  
+  this->messenger_.listen(clk_pin_, stb_pin_, dio_pin_, true);
+
+  ESP_LOGD(TAG, "Started listening...");
+}
+
+void BDH450Sensor::dump_config() {
+  ESP_LOGCONFIG(TAG, "BDH-450:");
+
+  LOG_UPDATE_INTERVAL(this);
+}
+
+void BDH450Sensor::update() {
+  //this->messenger_.listen(clk_pin_, stb_pin_, dio_pin_, true);
+  this->process_byte_();
+}
+
+bool BDH450Sensor::is_on() { return power_on_; }
+bool BDH450Sensor::is_off() { return !power_on_; }
 
 void BDH450Sensor::process_byte_()
 {
@@ -146,7 +154,7 @@ void BDH450Sensor::process_byte_()
             getting_display_ = false; // This is the last empty bit from the 0xC0
             if (this->the_humidity_sensor_ != nullptr)
               this->the_humidity_sensor_->publish_state(digit_tens_ * 10 + digit_ones_);
-              this->messenger_.listen(clk_pin_, stb_pin_, false);
+              this->messenger_.listen(clk_pin_, stb_pin_, dio_pin_, false);
             break;
         }
         _wait_byte_idx_++;
@@ -158,6 +166,7 @@ void BDH450Sensor::process_byte_()
         getting_display_ = true; // Start interpreting the following bytes as segment display
       }
 
+      
       //Serial.println(messenger_.byte_cache[i],HEX);
     }
 

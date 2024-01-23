@@ -18,25 +18,26 @@ namespace bdh450 {
 class BDH450Messenger {
 
   public:
-    static void clock_read_(BDH450Messenger *msg);
-    static void strobe_active_(BDH450Messenger *msg);
+    static void clock_read(BDH450Messenger *msg);
+    static void strobe_active(BDH450Messenger *msg);
     void reset();
 
-    void listen(InternalGPIOPin *clk_pin, InternalGPIOPin *stb_pin, bool enable_listen);
+    void listen(InternalGPIOPin *clk_pin, InternalGPIOPin *stb_pin, InternalGPIOPin *dio_pin, bool enable_listen);
 
-    InternalGPIOPin *stb_pin;
-    GPIOPin *dio_pin;
-    bool process_byte_now = false; // Whether the main loop should process the data read
-    uint8_t ary_idx = 0; // where we're writing to the array
-    uint8_t byte_cache[5]; // small array in case we get data faster than we're processing it
-    uint8_t workingy_byte = 0; // Last data byte read from the serial
+    ISRInternalGPIOPin stb_pin;
+    ISRInternalGPIOPin dio_pin;
+    ISRInternalGPIOPin clk_pin;
+    volatile bool process_byte_now = false; // Whether the main loop should process the data read
+    volatile uint8_t ary_idx = 0; // where we're writing to the array
+    volatile uint8_t byte_cache[5]; // small array in case we get data faster than we're processing it
+    volatile uint8_t workingy_byte = 0; // Last data byte read from the serial
     
 
   protected:
     
-    bool already_listening_ = false; // we started listening for an update
-    bool is_strobe_active_ = false; // If stroibe is active we're reading data
-    int bits_read_ = 0; // how many bits read so far, we kick it at 8 no matter what
+    volatile bool already_listening_ = false; // we started listening for an update
+    volatile bool is_strobe_active_ = false; // If stroibe is active we're reading data
+    volatile int bits_read_ = 0; // how many bits read so far, we kick it at 8 no matter what
     
 };
 
@@ -47,7 +48,7 @@ class BDH450Sensor : public PollingComponent {
 
   void set_clk_pin(InternalGPIOPin *pin) { this->clk_pin_ = pin; }
   void set_stb_pin(InternalGPIOPin *pin) { this->stb_pin_ = pin; }
-  void set_dio_pin(GPIOPin *pin) { this->dio_pin_ = pin; }
+  void set_dio_pin(InternalGPIOPin *pin) { this->dio_pin_ = pin; }
   void set_power_sensor(binary_sensor::BinarySensor *sensor) { the_power_sensor_ = sensor; }
   void set_tank_sensor(binary_sensor::BinarySensor *sensor) { the_tank_sensor_ = sensor; }
   void set_defrost_sensor(binary_sensor::BinarySensor *sensor) { the_defrost_sensor_ = sensor; }
@@ -68,9 +69,7 @@ class BDH450Sensor : public PollingComponent {
 
   InternalGPIOPin *clk_pin_;
   InternalGPIOPin *stb_pin_;
-  ISRInternalGPIOPin pin_clock_;
-  ISRInternalGPIOPin pin_strobe_;
-  GPIOPin *dio_pin_;
+  InternalGPIOPin *dio_pin_;
 
   binary_sensor::BinarySensor *the_power_sensor_{nullptr};
   binary_sensor::BinarySensor *the_tank_sensor_{nullptr};

@@ -14,6 +14,8 @@ from esphome.const import (
     UNIT_PERCENT,
 )
 
+AUTO_LOAD = ["binary_sensor", "sensor", "text_sensor"]
+
 CONF_TANK_STATUS = "tank_status"
 CONF_DEFROSTING = "defrosting"
 CONF_STROBE_PIN = "strobe_pin"
@@ -40,7 +42,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_TANK_STATUS): binary_sensor.binary_sensor_schema(),
         cv.Optional(CONF_FAN_MODE): text_sensor.text_sensor_schema(text_sensor.TextSensor)
     }
-).extend(cv.polling_component_schema("2s"))
+).extend(cv.polling_component_schema("20s"))
 
 
 async def to_code(config):
@@ -52,7 +54,7 @@ async def to_code(config):
     pin_data = await gpio_pin_expression(config[CONF_DATA_PIN])
     cg.add(var.set_dio_pin(pin_data))
     pin_strobe = await gpio_pin_expression(config[CONF_STROBE_PIN])
-    cg.add(var.set_dio_pin(pin_strobe))
+    cg.add(var.set_stb_pin(pin_strobe))
 
 
     if CONF_POWER in config:
