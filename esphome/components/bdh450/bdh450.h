@@ -29,15 +29,28 @@ class BDH450Messenger {
     ISRInternalGPIOPin clk_pin;
     volatile bool process_byte_now = false; // Whether the main loop should process the data read
     volatile uint8_t ary_idx = 0; // where we're writing to the array
-    volatile uint8_t byte_cache[5]; // small array in case we get data faster than we're processing it
-    volatile uint8_t workingy_byte = 0; // Last data byte read from the serial
+    volatile uint8_t working_byte = 0; // Current data beaing read
+    volatile uint8_t last_worked_byte = 0; // Current data beaing read
     
+    
+    bool power_on = false; // is the power on?
+    uint8_t humidity = 0;
+    uint8_t fan_speed = 0;
+    bool tank_full = false;
+    bool defrosting = false;
 
   protected:
     
+    void process_byte_(uint8_t data);
     volatile bool already_listening_ = false; // we started listening for an update
     volatile bool is_strobe_active_ = false; // If stroibe is active we're reading data
     volatile int bits_read_ = 0; // how many bits read so far, we kick it at 8 no matter what
+    uint8_t _wait_byte_idx_ = 0; // which byte of the 6 are we processing
+    bool getting_display_ = false; // if we're parsing the 0xC0 command that pushes data to the display
+
+    uint8_t digit_ones_ = 0; // temp hold ones digit
+    uint8_t digit_tens_ = 0; // temp hold tens digit
+    uint8_t last_byte_processed;
     
 };
 
@@ -59,11 +72,12 @@ class BDH450Sensor : public PollingComponent {
   bool is_off();
 
   void update() override;
+  void loop() override;
 
+  static  uint8_t get_digit(uint8_t my_bits);
  protected:
-  uint8_t get_digit_(uint8_t my_bits);
+  
 
-  void process_byte_();
 
 
 
@@ -80,13 +94,7 @@ class BDH450Sensor : public PollingComponent {
 
   BDH450Messenger messenger_; // pass messages from the interrupt
 
-  uint8_t _wait_byte_idx_ = 0; // which byte of the 6 are we processing
-  bool getting_display_ = false; // if we're parsing the 0xC0 command that pushes data to the display
 
-  uint8_t digit_ones_ = 0; // temp hold ones digit
-  uint8_t digit_tens_ = 0; // temp hold tens digit
-  bool power_on_ = false; // is the power on?
-  
 
 };
 

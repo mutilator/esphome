@@ -42,7 +42,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_TANK_STATUS): binary_sensor.binary_sensor_schema(),
         cv.Optional(CONF_FAN_MODE): text_sensor.text_sensor_schema(text_sensor.TextSensor)
     }
-).extend(cv.polling_component_schema("20s"))
+).extend(cv.polling_component_schema("2s"))
 
 
 async def to_code(config):
