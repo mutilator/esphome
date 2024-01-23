@@ -17,7 +17,7 @@ static const uint8_t BDH450_REGISTER_TANK_FULL = 0b00000001;
 static const uint8_t BDH450_REGISTER_UPDATE_DISPLAY = 0xC0;
 
 
-void BDH450Component::setup() {
+void BDH450Sensor::setup() {
   ESP_LOGD(TAG, "Setting up BDH-450...");
 
   this->clk_pin_->setup();  // INPUT
@@ -28,13 +28,17 @@ void BDH450Component::setup() {
   this->dio_pin_->pin_mode(gpio::FLAG_INPUT);
   this->stb_pin_->pin_mode(gpio::FLAG_INPUT);
 
-  this->clk_pin_ = this->clk_pin_->to_isr();
-  this->stb_pin_ = this->stb_pin_->to_isr();
+  this->pin_clock_ = this->clk_pin_->to_isr();
+  this->pin_strobe_ = this->stb_pin_->to_isr();
 
-  this->listen(true);
+  this->messenger_.listen(this->clk_pin_, this->stb_pin_, true);
+
+  
+  messenger_.dio_pin = this-> dio_pin_; 
+  messenger_.stb_pin = this-> stb_pin_;
 }
 
-void BDH450Component::dump_config() {
+void BDH450Sensor::dump_config() {
   ESP_LOGCONFIG(TAG, "BDH-450:");
   LOG_PIN("  CLK   Pin: ", this->clk_pin_);
   LOG_PIN("  DIO   Pin: ", this->dio_pin_);
@@ -43,122 +47,131 @@ void BDH450Component::dump_config() {
   LOG_UPDATE_INTERVAL(this);
 }
 
-void BDH450Component::loop() {
+void BDH450Sensor::update() {
+  this->messenger_.listen(clk_pin_, stb_pin_, true);
   this->process_byte_();
 }
 
-bool BDH450Component::is_on() { return power_on_; }
-bool BDH450Component::is_off() { return !power_on_; }
+bool BDH450Sensor::is_on() { return power_on_; }
+bool BDH450Sensor::is_off() { return !power_on_; }
 
-void IRAM_ATTR BDH450Component::strobe_active_() {
-  if (!this->stb_pin_.digital_read())
+void BDH450Messenger::reset()
+{
+  workingy_byte = 0;
+  bits_read_ = 0;
+  ary_idx = 0;
+}
+void IRAM_ATTR BDH450Messenger::strobe_active_(BDH450Messenger *msg) {
+  if (!msg->stb_pin->digital_read())
   {
-    is_strobe_active_ = true;
+    msg->is_strobe_active_ = true;
   } else {
-    is_strobe_active_ = false;
+    msg->is_strobe_active_ = false;
   }
 }
 
 
-void IRAM_ATTR BDH450Component::clock_read_() {
-  if (!is_strobe_active_)
+void IRAM_ATTR BDH450Messenger::clock_read_(BDH450Messenger *msg) {
+  if (!msg->is_strobe_active_)
     return;
 
-  bits_read_++;
-  workingy_byte_ >>= 1;
-  if (this->dio_pin_.digital_read())
-    workingy_byte_ |= 0x80;
+  msg->bits_read_++;
+  msg->workingy_byte >>= 1;
+  if (msg->dio_pin->digital_read())
+    msg->workingy_byte |= 0x80;
   
-  if (bits_read_ % 8 == 0)
+  if (msg->bits_read_ % 8 == 0)
   {
-    byte_cache_[ary_idx_] = workingy_byte_;
-    ary_idx_++;
-    process_byte_ = true;
+    msg->byte_cache[msg->ary_idx] = msg->workingy_byte;
+    msg->ary_idx++;
+    msg->process_byte_now = true;
   }
 }
 
-void BDH450Component::listen_(bool enable_listen) {
+void BDH450Messenger::listen(InternalGPIOPin *clk_pin, InternalGPIOPin *stb_pin, bool enable_listen) {
   if (enable_listen && !already_listening_)
   {
-    workingy_byte_ = 0;
-    bits_read_ = 0;
-    ary_idx_ = 0;
+    reset();
 
-    clk_pin_->attach_interrupt(BDH450Component::clock_read_, this, gpio::INTERRUPT_RISING_EDGE);
-    stb_pin_->attach_interrupt(BDH450Component::strobe_active_, this, gpio::INTERRUPT_ANY_EDGE);
+    clk_pin->attach_interrupt(BDH450Messenger::strobe_active_, this, gpio::INTERRUPT_ANY_EDGE);
+    stb_pin->attach_interrupt(BDH450Messenger::clock_read_, this, gpio::INTERRUPT_RISING_EDGE);
+    
     
     already_listening_ = true;
   } else if (!enable_listen) {
     
-    stb_pin_->detach_interrupt();
-    clk_pin_->detach_interrupt();
+    stb_pin->detach_interrupt();
+    clk_pin->detach_interrupt();
     already_listening_ = false;
   }
 }
 
-void BDH450Component::process_byte_()
+void BDH450Sensor::process_byte_()
 {
-  if (process_byte_)
+  if (messenger_.process_byte_now)
   {
-    for(int i = ary_idx_ - 1; i >= 0; i--) // read all bytes ready, usually just one
+    for(int i = messenger_.ary_idx - 1; i >= 0; i--) // read all bytes ready, usually just one
     {
       if (getting_display_) // Check if we're reading the display command parameters
       {
         switch (_wait_byte_idx_)
         {
           case 0: // LED STATUS_LIGHTS
+            power_on_ = (messenger_.byte_cache[i] & BDH450_REGISTER_POWER) == BDH450_REGISTER_POWER;
+
             if (this->the_fan_mode_ != nullptr)
-              this->the_fan_mode_->publish_state((byte_cache_[i] & BDH450_REGISTER_FAN_HIGH) == BDH450_REGISTER_FAN_HIGH?"High":(byte_cache_[i] & BDH450_REGISTER_FAN_MEDIUM) == BDH450_REGISTER_FAN_MEDIUM?"Medium":(byte_cache_[i] & BDH450_REGISTER_FAN_LOW) == BDH450_REGISTER_FAN_LOW?"Low":"Auto";);
+              this->the_fan_mode_->publish_state((messenger_.byte_cache[i] & BDH450_REGISTER_FAN_HIGH) == BDH450_REGISTER_FAN_HIGH?"High":(messenger_.byte_cache[i] & BDH450_REGISTER_FAN_MEDIUM) == BDH450_REGISTER_FAN_MEDIUM?"Medium":(messenger_.byte_cache[i] & BDH450_REGISTER_FAN_LOW) == BDH450_REGISTER_FAN_LOW?"Low":"Auto");
             
             if (this->the_power_sensor_ != nullptr)
-              this->the_power_sensor_->publish_state((byte_cache_[i] & BDH450_REGISTER_POWER) == BDH450_REGISTER_POWER);
+              this->the_power_sensor_->publish_state(power_on_);
 
             if (this->the_tank_sensor_ != nullptr)
-              this->the_tank_sensor_->publish_state((byte_cache_[i] & BDH450_REGISTER_TANK_FULL) == BDH450_REGISTER_TANK_FULL);
+              this->the_tank_sensor_->publish_state((messenger_.byte_cache[i] & BDH450_REGISTER_TANK_FULL) == BDH450_REGISTER_TANK_FULL);
 
             if (this->the_defrost_sensor_ != nullptr)
-              this->the_defrost_sensor_->publish_state((byte_cache_[i] & BDH450_REGISTER_DEFROST) == BDH450_REGISTER_DEFROST);
+              this->the_defrost_sensor_->publish_state((messenger_.byte_cache[i] & BDH450_REGISTER_DEFROST) == BDH450_REGISTER_DEFROST);
 
             break;
           case 1: // empty bit? could be an issue with how we're reading data
             break;
           case 2:
-            digit_ones_ = this->get_digit_(byte_cache_[i]);
+            digit_ones_ = this->get_digit_(messenger_.byte_cache[i]);
             break;
           case 3: // empty bit? could be an issue with how we're reading data
             break;
           case 4:
-            digit_tens_ = this->get_digit_(byte_cache_[i]);
+            digit_tens_ = this->get_digit_(messenger_.byte_cache[i]);
             break;
           case 5: // empty bit? could be an issue with how we're reading data
             getting_display_ = false; // This is the last empty bit from the 0xC0
             if (this->the_humidity_sensor_ != nullptr)
               this->the_humidity_sensor_->publish_state(digit_tens_ * 10 + digit_ones_);
+              this->messenger_.listen(clk_pin_, stb_pin_, false);
             break;
         }
         _wait_byte_idx_++;
       }
 
-      if (byte_cache_[i] == 0xC0) // Command 3 from datasheet
+      if (messenger_.byte_cache[i] == 0xC0) // Command 3 from datasheet
       {
         _wait_byte_idx_ = 0;
         getting_display_ = true; // Start interpreting the following bytes as segment display
       }
 
-      //Serial.println(byte_cache_[i],HEX);
+      //Serial.println(messenger_.byte_cache[i],HEX);
     }
 
     // processed the array, reset
-    ary_idx_ = 0;    
-    process_byte_ = false;
+    messenger_.ary_idx = 0;    
+    messenger_.process_byte_now = false;
   }
 }
 
 
-uint8_t BDH450Component::get_digit_(uint8_t my_bits)
+uint8_t BDH450Sensor::get_digit_(uint8_t my_bits)
 {
   for(int i = 0; i <= 9; i++)
-    if (my_bits == SEG_DIGITS[i])
+    if (my_bits == BDH450Translation::SEG_DIGITS[i])
       return i;
 
   return 0; //uh give em something i guess?

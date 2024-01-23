@@ -4,7 +4,7 @@ namespace esphome {
 namespace bdh450 {
 namespace BDH450Translation {
 
-const unsigned char SEG_DIGITS[] = {
+const unsigned char SEG_DIGITS[] PROGMEM = {
   0b11101011, // 0
   0b10000001, // 1
   0b11011010, // 2
