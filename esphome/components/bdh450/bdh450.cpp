@@ -7,7 +7,7 @@
 namespace esphome {
 namespace bdh450 {
 
-static const char *const TAG = "display.bdh450";
+static const char *const TAG = "bdh450";
 static const uint8_t BDH450_REGISTER_POWER = 0b10000000;
 static const uint8_t BDH450_REGISTER_FAN_HIGH = 0b01000000;
 static const uint8_t BDH450_REGISTER_FAN_MEDIUM = 0b00100000;
@@ -47,15 +47,11 @@ void BDH450Component::loop() {
   this->process_byte_();
 }
 
-
-
-void BDH450Component::update() {  // this is called at the interval specified in the config.yaml
-  
-}
-
+bool BDH450Component::is_on() { return power_on_; }
+bool BDH450Component::is_off() { return !power_on_; }
 
 void IRAM_ATTR BDH450Component::strobe_active_() {
-  if (!digitalRead(stb_pin_))
+  if (!this->stb_pin_.digital_read())
   {
     is_strobe_active_ = true;
   } else {
@@ -70,7 +66,7 @@ void IRAM_ATTR BDH450Component::clock_read_() {
 
   bits_read_++;
   workingy_byte_ >>= 1;
-  if (digitalRead(dio_pin_))
+  if (this->dio_pin_.digital_read())
     workingy_byte_ |= 0x80;
   
   if (bits_read_ % 8 == 0)
@@ -111,10 +107,18 @@ void BDH450Component::process_byte_()
         switch (_wait_byte_idx_)
         {
           case 0: // LED STATUS_LIGHTS
-            power_on_ = (byte_cache_[i] & BDH450_REGISTER_POWER) == BDH450_REGISTER_POWER;
-            fan_speed_ = (byte_cache_[i] & BDH450_REGISTER_FAN_HIGH) == BDH450_REGISTER_FAN_HIGH?3:(byte_cache_[i] & BDH450_REGISTER_FAN_MEDIUM) == BDH450_REGISTER_FAN_MEDIUM?2:(byte_cache_[i] & BDH450_REGISTER_FAN_LOW) == BDH450_REGISTER_FAN_LOW?1:0;
-            tank_full_ = (byte_cache_[i] & BDH450_REGISTER_TANK_FULL) == BDH450_REGISTER_TANK_FULL;
-            defrosting_ = (byte_cache_[i] & BDH450_REGISTER_DEFROST) == BDH450_REGISTER_DEFROST;
+            if (this->the_fan_mode_ != nullptr)
+              this->the_fan_mode_->publish_state((byte_cache_[i] & BDH450_REGISTER_FAN_HIGH) == BDH450_REGISTER_FAN_HIGH?"High":(byte_cache_[i] & BDH450_REGISTER_FAN_MEDIUM) == BDH450_REGISTER_FAN_MEDIUM?"Medium":(byte_cache_[i] & BDH450_REGISTER_FAN_LOW) == BDH450_REGISTER_FAN_LOW?"Low":"Auto";);
+            
+            if (this->the_power_sensor_ != nullptr)
+              this->the_power_sensor_->publish_state((byte_cache_[i] & BDH450_REGISTER_POWER) == BDH450_REGISTER_POWER);
+
+            if (this->the_tank_sensor_ != nullptr)
+              this->the_tank_sensor_->publish_state((byte_cache_[i] & BDH450_REGISTER_TANK_FULL) == BDH450_REGISTER_TANK_FULL);
+
+            if (this->the_defrost_sensor_ != nullptr)
+              this->the_defrost_sensor_->publish_state((byte_cache_[i] & BDH450_REGISTER_DEFROST) == BDH450_REGISTER_DEFROST);
+
             break;
           case 1: // empty bit? could be an issue with how we're reading data
             break;
@@ -128,7 +132,8 @@ void BDH450Component::process_byte_()
             break;
           case 5: // empty bit? could be an issue with how we're reading data
             getting_display_ = false; // This is the last empty bit from the 0xC0
-            humidity_ = digit_tens_ * 10 + digit_ones_;
+            if (this->the_humidity_sensor_ != nullptr)
+              this->the_humidity_sensor_->publish_state(digit_tens_ * 10 + digit_ones_);
             break;
         }
         _wait_byte_idx_++;

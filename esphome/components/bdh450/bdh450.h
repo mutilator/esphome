@@ -18,13 +18,19 @@ class BDH450Component : public PollingComponent {
  public:
   void setup() override;
   void dump_config() override;
-  void update() override;
   float get_setup_priority() const override;
 
   void set_clk_pin(InternalGPIOPin *pin) { this->clk_pin_ = pin; }
   void set_stb_pin(InternalGPIOPin *pin) { this->stb_pin_ = pin; }
   void set_dio_pin(GPIOPin *pin) { this->dio_pin_ = pin; }
-  
+  void set_power_sensor(binary_sensor::BinarySensor *sensor) { the_power_sensor_ = sensor; }
+  void set_tank_sensor(binary_sensor::BinarySensor *sensor) { the_tank_sensor_ = sensor; }
+  void set_defrost_sensor(binary_sensor::BinarySensor *sensor) { the_defrost_sensor_ = sensor; }
+  void set_fan_mode_sensor(text_sensor::TextSensor *sensor) { the_fan_mode_ = sensor; }
+  void set_power_sensor(sensor::Sensor *sensor) { the_humidity_sensor_ = sensor; }
+
+  bool is_on();
+  bool is_off();
 
   void loop() override;
 
@@ -41,6 +47,13 @@ class BDH450Component : public PollingComponent {
   InternalGPIOPin *stb_pin_;
   GPIOPin *dio_pin_;
 
+  binary_sensor::BinarySensor *the_power_sensor_{nullptr};
+  binary_sensor::BinarySensor *the_tank_sensor_{nullptr};
+  binary_sensor::BinarySensor *the_defrost_sensor_{nullptr};
+  text_sensor::TextSensor *the_fan_mode_{nullptr};
+  sensor::Sensor *the_humidity_sensor_{nullptr};
+
+
   bool is_strobe_active_ = false; // If stroibe is active we're reading data
   bool process_byte_ = false; // Whether the main loop should process the data read
 
@@ -55,11 +68,6 @@ class BDH450Component : public PollingComponent {
 
   uint8_t digit_ones_ = 0; // temp hold ones digit
   uint8_t digit_tens_ = 0; // temp hold tens digit
-  uint8_t humidity_ = 0; // humidity readout
-  bool power_on_ = false; // is the power on?
-  uint8_t fan_speed_ = 0; //0 = auto, 1 = low, 2 = med, 3 = high
-  bool tank_full_ = false; // is the tank full light on?
-  bool defrosting_ = false; // is the defrosting light on?
   bool already_listening_ = false; // we started listening for an update
 
 };
