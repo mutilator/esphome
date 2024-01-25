@@ -23,7 +23,10 @@ void BDH450Messenger::reset()
 {
   working_byte = 0;
   bits_read_ = 0;
+  
+  reset_stages();
 }
+
 
 void IRAM_ATTR BDH450Messenger::strobe_active(BDH450Messenger *msg) {
   if (!msg->stb_pin.digital_read())
@@ -80,26 +83,60 @@ void IRAM_ATTR BDH450Messenger::process_byte_(uint8_t worked_byte)
       switch (_wait_byte_idx_)
       {
         case 0: // LED STATUS_LIGHTS
-          power_on = (worked_byte & BDH450_REGISTER_POWER) == BDH450_REGISTER_POWER;
-          fan_speed = (worked_byte & BDH450_REGISTER_FAN_HIGH) == BDH450_REGISTER_FAN_HIGH?3:(worked_byte & BDH450_REGISTER_FAN_MEDIUM) == BDH450_REGISTER_FAN_MEDIUM?2:(worked_byte & BDH450_REGISTER_FAN_LOW) == BDH450_REGISTER_FAN_LOW?1:0;
-          tank_full = (worked_byte & BDH450_REGISTER_TANK_FULL) == BDH450_REGISTER_TANK_FULL;
-          defrosting = (worked_byte & BDH450_REGISTER_DEFROST) == BDH450_REGISTER_DEFROST;
-          
-
+          power_on_ = (worked_byte & BDH450_REGISTER_POWER) == BDH450_REGISTER_POWER;
+          fan_speed_ = (worked_byte & BDH450_REGISTER_FAN_HIGH) == BDH450_REGISTER_FAN_HIGH?3:(worked_byte & BDH450_REGISTER_FAN_MEDIUM) == BDH450_REGISTER_FAN_MEDIUM?2:(worked_byte & BDH450_REGISTER_FAN_LOW) == BDH450_REGISTER_FAN_LOW?1:0;
+          tank_full_ = (worked_byte & BDH450_REGISTER_TANK_FULL) == BDH450_REGISTER_TANK_FULL;
+          defrosting_ = (worked_byte & BDH450_REGISTER_DEFROST) == BDH450_REGISTER_DEFROST;
+          stage_statuses_[_wait_byte_idx_] = true;
           break;
         case 1: // empty bit? could be an issue with how we're reading data
+          if (worked_byte == 0)
+            stage_statuses_[_wait_byte_idx_] = true;
           break;
         case 2:
+          
           digit_ones_ = BDH450Sensor::get_digit(worked_byte);
+          if (digit_ones_ < 10)
+            stage_statuses_[_wait_byte_idx_] = true;
           break;
         case 3: // empty bit? could be an issue with how we're reading data
+          if (worked_byte == 0)
+            stage_statuses_[_wait_byte_idx_] = true;
           break;
         case 4:
           digit_tens_ = BDH450Sensor::get_digit(worked_byte);
+          if (digit_tens_ < 10)
+            stage_statuses_[_wait_byte_idx_] = true;
           break;
         case 5: // empty bit? could be an issue with how we're reading data
+          if (worked_byte == 0)
+            stage_statuses_[_wait_byte_idx_] = true;
+
           getting_display_ = false; // This is the last empty bit from the 0xC0
-          humidity = digit_tens_ * 10 + digit_ones_;
+
+          bool success = true;
+          //make sure it was all a success
+          for(int i = 0; i < 6; i++) { if (!stage_statuses_[i]) { success = false; } }
+
+          if (success)
+          {
+            power_on = power_on_;
+            fan_speed = fan_speed_;
+            tank_full = tank_full_;
+            defrosting = defrosting_;
+
+            if (power_on)
+            {
+              // only update if power is on and it's reading a sensible range
+              // easier to ignore typical outliers than to create a way to make sure it's not reading incorrectly
+              if ((digit_tens_ * 10 + digit_ones_) > 10 && (digit_tens_ * 10 + digit_ones_) < 90) 
+              {
+                humidity = digit_tens_ * 10 + digit_ones_;
+              }
+            } else {
+              humidity = 0; //power is off, no readings
+            }
+          }
           break;
       }
       _wait_byte_idx_++;

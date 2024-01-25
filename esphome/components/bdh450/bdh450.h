@@ -40,7 +40,7 @@ class BDH450Messenger {
     bool defrosting = false;
 
   protected:
-    
+    void reset_stages(){for(int i = 0; i < 6; i++) { stage_statuses_[i] = false;}};
     void process_byte_(uint8_t data);
     volatile bool already_listening_ = false; // we started listening for an update
     volatile bool is_strobe_active_ = false; // If stroibe is active we're reading data
@@ -51,8 +51,17 @@ class BDH450Messenger {
     uint8_t digit_ones_ = 0; // temp hold ones digit
     uint8_t digit_tens_ = 0; // temp hold tens digit
     uint8_t last_byte_processed;
+
+    // temp vars to hold the last reading, we perform checks before we commit the values to the public vars
+    bool power_on_ = false; // is the power on?
+    uint8_t humidity_ = 0;
+    uint8_t fan_speed_ = 0;
+    bool tank_full_ = false;
+    bool defrosting_ = false;
+    bool stage_statuses_[6];
     
 };
+
 
 class BDH450Sensor : public PollingComponent {
  public:
