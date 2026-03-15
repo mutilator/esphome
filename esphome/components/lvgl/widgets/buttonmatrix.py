@@ -1,5 +1,6 @@
 from esphome import automation
 import esphome.codegen as cg
+from esphome.components.const import CONF_ROWS
 from esphome.components.key_provider import KeyProvider
 import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_ITEMS, CONF_TEXT, CONF_WIDTH
@@ -15,7 +16,6 @@ from ..defines import (
     CONF_ONE_CHECKED,
     CONF_PAD_COLUMN,
     CONF_PAD_ROW,
-    CONF_ROWS,
     CONF_SELECTED,
 )
 from ..helpers import lvgl_components_required
@@ -245,6 +245,7 @@ buttonmatrix_spec = ButtonMatrixType()
             cv.Optional(CONF_SELECTED): lv_bool,
         }
     ),
+    synchronous=True,
 )
 async def button_update_to_code(config, action_id, template_arg, args):
     widgets = await get_widgets(config[CONF_ID])
